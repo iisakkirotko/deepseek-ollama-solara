@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "deepseek-ollama-solara"
+description = "A Solara front-end for deepseek ran locally using Ollama"
+version = "0.0.1"
+dependencies = [
+    "solara",
+    "ollama",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy",
+]
+
+test = [
+    "pytest-ipywidgets",
+    "pytest-playwright<0.6", # pytest-playwright doesn't support newer versions, see https://github.com/widgetti/solara/issues/913
+]
+
+[tool.ruff]
+fix = true
+exclude = [
+    '.git',
+    'dist',
+    '.eggs',
+]
+line-length = 100
+
+[tool.ruff.lint]
+ignore = [
+    "E501", # line too long | Black take care of it
+]
+select = ["E", "W", "F", "Q", "I"]
+
+[tool.black]
+line-length = 100
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
