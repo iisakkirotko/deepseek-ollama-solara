@@ -9,6 +9,9 @@ version = "0.0.1"
 dependencies = [
     "solara",
     "ollama",
+    "sqlalchemy",
+    "databases",
+    "aiosqlite",
 ]
 
 [project.optional-dependencies]
