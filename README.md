@@ -4,3 +4,8 @@
 2. Run the model: `ollama pull deepseek-r1:8b`
 3. Install this package: `(uv) pip install .`
 4. Run the app: `solara run deepseek_ollama_solara.app`
+
+
+## Using different models
+
+If you want to use a different model, or have a number of models available, you can simply pull them using `ollama pull model`, and after a refresh the app should list the available models on the bottom of the sidebar.

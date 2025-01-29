@@ -23,12 +23,15 @@ class MessageDict(TypedDict):
 
 class ChatDict(TypedDict):
     title: str
+    model: str
     id: uuid.UUID
 
 
 chats: solara.Reactive[List[ChatDict]] = solara.reactive([])
 selected_chat: solara.Reactive[ChatDict | None] = solara.reactive(None)
 messages: solara.Reactive[List[MessageDict]] = solara.reactive([])
+models: solara.Reactive[List[str]] = solara.reactive([])
+current_model: solara.Reactive[str] = solara.reactive("deepseek-r1:8b")
 
 ai_client = AsyncClient()
 
@@ -36,6 +39,8 @@ ai_client = AsyncClient()
 async def init():
     await connect_database()
     chats.value = await get_chats()
+    available_models = await ai_client.list()
+    models.value = [model.model for model in available_models.models]
 
 
 @solara.lab.task
@@ -46,10 +51,11 @@ async def update_messages():
 @solara.lab.task
 async def promt_ai(message: str):
     thinking = False
+    model_to_use = current_model.value if selected_chat.value is None else selected_chat.value["model"]
     user_message: MessageDict = {"role": "user", "created": datetime.datetime.now(), "content": message, "chain_of_reason": None}
     if selected_chat.value is None:
-        new_chat = await create_chat("New Chat", uuid.uuid4())
-        selected_chat.value = {"id": new_chat["id"], "title": new_chat["title"]}
+        new_chat = await create_chat("New Chat", uuid.uuid4(), current_model.value)
+        selected_chat.value = {"id": new_chat["id"], "title": new_chat["title"], "model": new_chat["model"]}
 
     messages.value = [
         *messages.value,
@@ -57,7 +63,7 @@ async def promt_ai(message: str):
     ]
     # The part below can be replaced with a call to your own
     response = ai_client.chat(
-        model="deepseek-r1:8b",
+        model=model_to_use,
         # our MessageDict is compatible with the OpenAI types
         messages=messages.value,
         stream=True,
@@ -79,8 +85,10 @@ async def promt_ai(message: str):
             continue
         assert delta is not None
         message_content = messages.value[-1]["content"]
-        chain_of_reason = messages.value[-1]["chain_of_reason"] or ""
+        chain_of_reason = messages.value[-1]["chain_of_reason"]
         if thinking:
+            if chain_of_reason is None:
+                chain_of_reason = ""
             chain_of_reason += delta
         else:
             message_content += delta
@@ -104,7 +112,9 @@ def Page():
     init_task = solara.lab.use_task(init, dependencies=[selected_chat.value])
     empty_chat = selected_chat.value is None or len(messages.value) == 0
     if init_task.pending:
-        solara.Text("Loading...")
+        with solara.Column(style={"width": "100%", "height": "100%", "justify-content": "center"}, align="center"):
+            solara.SpinnerSolara()
+            solara.Text("Loading...")
     else:
         with solara.Column(
             style={"width": "100%", "height": "50vh" if empty_chat else "100%"},
@@ -115,11 +125,16 @@ def Page():
                 if update_messages.pending:
                     solara.Text("Loading messages...")
                 else:
+                    if empty_chat:
+                        model_name = current_model.value.split(":")[0]
+                    else:
+                        model_name = selected_chat.value["model"].split(":")[0]
+                    
                     for item in messages.value:
                         with solara.lab.ChatMessage(
                             user=item["role"] == "user",
                             avatar=False,
-                            name="Deepseek" if item["role"] == "assistant" else "User",
+                            name=model_name if item["role"] == "assistant" else "User",
                             color="rgba(0,0,0, 0.06)" if item["role"] == "assistant" else "#ff991f",
                             avatar_background_color="primary" if item["role"] == "assistant" else None,
                             border_radius="20px",
@@ -154,6 +169,18 @@ def Layout(children=[]):
                 for chat in chats.value:
                     with solara.v.ListItem(value=str(chat["id"]), dense=True):
                         solara.v.ListItemTitle(children=[chat["title"]])
+            if len(models.value) > 1:
+                solara.Select(
+                    label="Model",
+                    values=models.value,
+                    value=current_model,
+                    style={
+                        "align-self": "flex-end",
+                        "position": "absolute",
+                        "bottom": "0",
+                        "padding": "0 16px",
+                    },
+                )
         with solara.Column(children=children, gap=0, style={"height": "calc(100dvh - 44px)", "flex": 1, "padding": "20px"}):
             pass
 
@@ -174,7 +201,7 @@ def ChatTitle():
     async def _save_title(*_ignore):
         cancel_editing()
         await update_chat(selected_chat.value["id"], title.value)
-        new_details: ChatDict = {"id": selected_chat.value["id"], "title": title.value}
+        new_details: ChatDict = {"id": selected_chat.value["id"], "title": title.value, "model": selected_chat.value["model"]}
         selected_chat.value = new_details
 
     save_title = solara.lab.use_task(_save_title, dependencies=None)

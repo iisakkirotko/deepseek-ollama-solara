@@ -14,6 +14,7 @@ chats = Table(
     "chats",
     metadata,
     Column("title", String),
+    Column("model", String),
     Column("id", UUID, primary_key=True, nullable=False, server_default="gen_random_uuid()"),
 )
 
@@ -43,8 +44,8 @@ async def get_chats():
     return await database.fetch_all(query)
 
 
-async def create_chat(title: str, uuid: uuid.UUID):
-    query = chats.insert().values(title=title, id=uuid).returning(*chats.c)
+async def create_chat(title: str, uuid: uuid.UUID, model: str):
+    query = chats.insert().values(title=title, id=uuid, model=model).returning(*chats.c)
     return await database.fetch_one(query)
 
 
