@@ -48,6 +48,11 @@ async def create_chat(title: str, uuid: uuid.UUID):
     return await database.fetch_one(query)
 
 
+async def update_chat(id: uuid.UUID, title: str):
+    query = chats.update().where(chats.c.id == id).values(title=title)
+    return await database.execute(query)
+
+
 async def get_messages(id: str):
     query = messages.select().where(messages.c.chat_id == id)
     chat_messages = await database.fetch_all(query)
