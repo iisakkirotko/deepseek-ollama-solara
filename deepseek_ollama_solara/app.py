@@ -6,7 +6,6 @@ from typing_extensions import TypedDict
 from ollama import AsyncClient
 import datetime
 import uuid
-import asyncio
 
 import solara
 import solara.lab
@@ -134,7 +133,8 @@ def Page():
                 solara.ProgressLinear()
             # if we don't call .key(..) with a unique key, the ChatInput component will be re-created
             # and we'll lose what we typed.
-            solara.lab.ChatInput(send_callback=promt_ai, disabled=promt_ai.pending).key("input")
+            chatinput_style = {"width": "50%" if empty_chat else "auto", "align-self": "center" if empty_chat else "stretch"}
+            solara.lab.ChatInput(send_callback=promt_ai, disabled=promt_ai.pending, style=chatinput_style).key("input")
 
 
 @solara.component
@@ -147,14 +147,14 @@ def Layout(children=[]):
             selected_chat.set(next(chat for chat in chats.value if chat["id"] == uuid.UUID(value)))
             update_messages()
     
-    with solara.Row(style={"width": "100%", "height": "100dvh"}):
+    with solara.Row(style={"width": "100%", "height": "100dvh"}, gap=0):
         with solara.v.NavigationDrawer(v_model=True):
-            solara.Button(label="New Chat", on_click=lambda: update_selected_chat(None), style={"width": "100%"})
+            solara.Button(label="New Chat", on_click=lambda: update_selected_chat(None), style={"width": "100%", "justify-content": "flex-start"}, text=True, icon_name="add")
             with solara.v.ListItemGroup(v_model=str(selected_chat.value["id"] if selected_chat.value is not None else None), on_v_model=update_selected_chat):
                 for chat in chats.value:
                     with solara.v.ListItem(value=str(chat["id"]), dense=True):
                         solara.v.ListItemTitle(children=[chat["title"]])
-        with solara.Column(children=children, gap=0, style={"height": "calc(100dvh - 44px)", "flex": 1, "padding": "0 20px"}):
+        with solara.Column(children=children, gap=0, style={"height": "calc(100dvh - 44px)", "flex": 1, "padding": "20px"}):
             pass
 
 
