@@ -48,3 +48,8 @@ tool_callables: dict[str, Callable[[Any], Coroutine[Any, Any, ToolResult]]] = {
     "search_duckduckgo": search_duckduckgo,
     "lookup_wikipedia": lookup_wikipedia,
 }
+
+
+def add_tool(function: Callable[[Any], Coroutine[Any, Any, ToolResult]], description: dict[str, Any]):
+    tools.append(description)
+    tool_callables[description["function"]["name"]] = function
