@@ -12,6 +12,8 @@ dependencies = [
     "sqlalchemy",
     "databases",
     "aiosqlite",
+    "duckduckgo_search",
+    "pymediawiki",
 ]
 
 [project.optional-dependencies]

@@ -1,9 +1,11 @@
-from typing import List
+from collections.abc import AsyncIterator
+import json
+from typing import List, cast
 
 from typing import Callable
-from typing_extensions import TypedDict
 
-from ollama import AsyncClient
+from ollama import AsyncClient, ChatResponse
+from ollama._types import ResponseError
 import datetime
 import uuid
 
@@ -11,70 +13,43 @@ import solara
 import solara.lab
 from reacton.ipyvuetify import use_event
 
-from .database import create_message, connect_database, get_chats, get_messages, create_chat, update_chat
+from .database import create_messages, connect_database, get_chats, get_messages, create_chat, update_chat
+from .tools import tools, tool_callables
+from .types import Message, ChatDict
 
-
-class MessageDict(TypedDict):
-    role: str  # "user" or "assistant"
-    created: datetime.datetime
-    content: str
-    chain_of_reason: str | None
-
-
-class ChatDict(TypedDict):
-    title: str
-    model: str
-    id: uuid.UUID
-
+SUPPORTS_TOOLS: dict[str, bool] = {}
 
 chats: solara.Reactive[List[ChatDict]] = solara.reactive([])
 selected_chat: solara.Reactive[ChatDict | None] = solara.reactive(None)
-messages: solara.Reactive[List[MessageDict]] = solara.reactive([])
+messages: solara.Reactive[List[Message]] = solara.reactive([])
 models: solara.Reactive[List[str]] = solara.reactive([])
 current_model: solara.Reactive[str] = solara.reactive("deepseek-r1:8b")
 
-ai_client = AsyncClient()
-
 
 async def init():
+    ai_client = AsyncClient()
     await connect_database()
     chats.value = await get_chats()
     available_models = await ai_client.list()
     models.value = [model.model for model in available_models.models]
+    for model in available_models.models:
+        if model.model not in SUPPORTS_TOOLS:
+            SUPPORTS_TOOLS[model.model] = True
 
-
-@solara.lab.task
-async def update_messages():
-    messages.value = await get_messages(selected_chat.value["id"])
-
-
-@solara.lab.task
-async def promt_ai(message: str):
+async def process_response(response: AsyncIterator[ChatResponse]) -> list[Message]:
     thinking = False
-    model_to_use = current_model.value if selected_chat.value is None else selected_chat.value["model"]
-    user_message: MessageDict = {"role": "user", "created": datetime.datetime.now(), "content": message, "chain_of_reason": None}
-    if selected_chat.value is None:
-        new_chat = await create_chat("New Chat", uuid.uuid4(), current_model.value)
-        selected_chat.value = {"id": new_chat["id"], "title": new_chat["title"], "model": new_chat["model"]}
-
-    messages.value = [
-        *messages.value,
-        user_message,
-    ]
-    # The part below can be replaced with a call to your own
-    response = ai_client.chat(
-        model=model_to_use,
-        # our MessageDict is compatible with the OpenAI types
-        messages=messages.value,
-        stream=True,
-    )
-    # start with an empty reply message, so we render and empty message in the chat
-    # while the AI is thinking
-    messages.value = [*messages.value, {"role": "assistant", "created": datetime.datetime.now(), "content": "", "chain_of_reason": None}]
-    # and update it with the response
-    async for chunk in await response:
-        if chunk.done_reason == "stop":
+    tool_messages: list[Message] = []
+    assistant_message: Message | None = None
+    async for chunk in response:
+        if chunk.message.tool_calls is not None:
+            for tool_call in chunk.message.tool_calls:
+                tool_callable = tool_callables[tool_call.function.name]
+                tool_result = await tool_callable(**tool_call.function.arguments) # type: ignore
+                tool_message = Message(role="tool", created=datetime.datetime.now(), content=json.dumps(tool_result), chain_of_reason=None)
+                tool_messages.append(tool_message)
+                messages.value = [*messages.value, tool_message]
             break
+
         # replace the last message element with the appended content
         delta = chunk.message.content
         if "<think>" == delta:
@@ -84,27 +59,93 @@ async def promt_ai(message: str):
             thinking = False
             continue
         assert delta is not None
-        message_content = messages.value[-1]["content"]
-        chain_of_reason = messages.value[-1]["chain_of_reason"]
+        created = assistant_message.created if assistant_message is not None else datetime.datetime.now()
+        message_content = assistant_message.content if assistant_message is not None else None
+        chain_of_reason = assistant_message.chain_of_reason if assistant_message is not None else None
+        
         if thinking:
             if chain_of_reason is None:
                 chain_of_reason = ""
             chain_of_reason += delta
         else:
+            if message_content is None:
+                message_content = ""
             message_content += delta
-        updated_message: MessageDict = {
-            "role": "assistant",
-            "created": messages.value[-1]["created"],
-            "content": message_content,
-            "chain_of_reason": chain_of_reason,
-        }
-        # replace the last message element with the appended content
-        # which will update the UI
-        messages.value = [*messages.value[:-1], updated_message]
+        
+        updated_message = Message(
+            role="assistant",
+            created=created,
+            content=message_content,
+            chain_of_reason=chain_of_reason,
+        )
+        # if we don't have an assistant message yet, create one
+        if assistant_message is None:
+            messages.value = [*messages.value, updated_message]
+        else:
+            # replace the last message element with the appended content
+            # which will update the UI
+            messages.value = [*messages.value[:-1], updated_message]
+
+        assistant_message = updated_message
+
+        if chunk.done_reason == "stop":
+            break
+    
+    messages_to_create = tool_messages
+    if assistant_message is not None:
+        messages_to_create.append(assistant_message)
+    return messages_to_create
+
+
+async def chat_loop(ai_client: AsyncClient, model_to_use: str):
+    # The part below can be replaced with a call to your own
+    response = await ai_client.chat(
+        model=model_to_use,
+        # our MessageDict is compatible with the OpenAI types
+        messages=messages.value,
+        stream=True,
+        tools=tools if SUPPORTS_TOOLS[model_to_use] else None,
+    )
+    
+    try:
+        messages_to_create = await process_response(response)
+    except ResponseError as e:
+        if "does not support tools" in str(e):
+            SUPPORTS_TOOLS[model_to_use] = False
+
+            response = await ai_client.chat(
+                model=model_to_use,
+                # our MessageDict is compatible with the OpenAI types
+                messages=messages.value,
+                stream=True,
+            )
+            messages_to_create = await process_response(response)
+
+    if messages_to_create[-1].role == "tool":
+        messages_to_create += await chat_loop(ai_client=ai_client, model_to_use=model_to_use)
+
+    return messages_to_create
+
+@solara.lab.task
+async def update_messages():
+    messages.value = await get_messages(selected_chat.value["id"])
+
+
+@solara.lab.task(prefer_threaded=False)
+async def promt_ai(message: str):
+    ai_client = AsyncClient()
+    model_to_use = current_model.value if selected_chat.value is None else selected_chat.value["model"]
+    user_message = Message(role="user", created=datetime.datetime.now(), content=message, chain_of_reason=None)
+    if selected_chat.value is None:
+        new_chat = await create_chat("New Chat", uuid.uuid4(), current_model.value)
+        selected_chat.value = cast(ChatDict, {"id": new_chat["id"], "title": new_chat["title"], "model": new_chat["model"]})
+
+    messages.value = [*messages.value, user_message]
+
+    messages_to_create = await chat_loop(ai_client=ai_client, model_to_use=model_to_use)
 
     assert selected_chat.value is not None
-    await create_message(selected_chat.value["id"], **user_message)
-    await create_message(selected_chat.value["id"], **updated_message)
+    await create_messages(selected_chat.value["id"], [user_message, *messages_to_create])
 
 
 @solara.component
@@ -131,18 +172,23 @@ def Page():
                         model_name = selected_chat.value["model"].split(":")[0]
                     
                     for item in messages.value:
-                        with solara.lab.ChatMessage(
-                            user=item["role"] == "user",
-                            avatar=False,
-                            name=model_name if item["role"] == "assistant" else "User",
-                            color="rgba(0,0,0, 0.06)" if item["role"] == "assistant" else "#ff991f",
-                            avatar_background_color="primary" if item["role"] == "assistant" else None,
-                            border_radius="20px",
-                        ):
-                            if item["chain_of_reason"] is not None:
-                                with solara.Details(summary="Chain of Thought"):
-                                    solara.Markdown(item["chain_of_reason"])
-                            solara.Markdown(item["content"])
+                        if item["role"] == "tool":
+                            tool_result = json.loads(item["content"])
+                            with solara.Column(align="flex-start"):
+                                solara.Markdown(tool_result["message"])
+                        else:
+                            with solara.lab.ChatMessage(
+                                user=item["role"] == "user",
+                                avatar=False,
+                                name=model_name if item["role"] == "assistant" else "User",
+                                color="rgba(0,0,0, 0.06)" if item["role"] == "assistant" else "#ff991f",
+                                avatar_background_color="primary" if item["role"] == "assistant" else None,
+                                border_radius="20px",
+                            ):
+                                if item["chain_of_reason"] is not None:
+                                    with solara.Details(summary="Chain of Thought"):
+                                        solara.Markdown(item["chain_of_reason"] or "")
+                                solara.Markdown(item["content"] or "")
             if promt_ai.pending:
                 solara.Text("I'm thinking...", style={"font-size": "1rem", "padding-left": "20px"})
                 solara.ProgressLinear()

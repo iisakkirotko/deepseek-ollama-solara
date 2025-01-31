@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine, MetaData, Table, Column, UUID, String, DateTime
 from databases import Database
-from datetime import datetime
 import uuid
+from .types import Message
 
 DATABASE_URL = "sqlite:///./chats.db"
 
@@ -61,6 +61,16 @@ async def get_messages(id: str):
     return chat_messages
 
 
-async def create_message(chat_id: uuid.UUID, role: str, created: datetime, content: str, chain_of_reason: str | None):
-    query = messages.insert().values(chat_id=chat_id, id=uuid.uuid4(),role=role, created=created, content=content, chain_of_reason=chain_of_reason)
+async def create_messages(chat_id: uuid.UUID, message_list: list[Message]):
+    message_values = []
+    for message in message_list:
+        message_values.append({
+            "chat_id": chat_id,
+            "id": uuid.uuid4(),
+            "role": message.role,
+            "created": message.created,
+            "content": message.content,
+            "chain_of_reason": message.chain_of_reason,
+        })
+    query = messages.insert().values(message_values)
     return await database.execute(query)
