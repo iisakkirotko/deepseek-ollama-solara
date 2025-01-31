@@ -24,6 +24,7 @@ selected_chat: solara.Reactive[ChatDict | None] = solara.reactive(None)
 messages: solara.Reactive[List[Message]] = solara.reactive([])
 models: solara.Reactive[List[str]] = solara.reactive([])
 current_model: solara.Reactive[str] = solara.reactive("deepseek-r1:8b")
+use_tools: solara.Reactive[bool] = solara.reactive(False)
 
 
 async def init():
@@ -104,7 +105,7 @@ async def chat_loop(ai_client: AsyncClient, model_to_use: str):
         # our MessageDict is compatible with the OpenAI types
         messages=messages.value,
         stream=True,
-        tools=tools if SUPPORTS_TOOLS[model_to_use] else None,
+        tools=tools if (SUPPORTS_TOOLS[model_to_use] and use_tools.value) else None,
     )
     
     try:
@@ -196,6 +197,7 @@ def Page():
             # and we'll lose what we typed.
             chatinput_style = {"width": "50%" if empty_chat else "auto", "align-self": "center" if empty_chat else "stretch"}
             solara.lab.ChatInput(send_callback=promt_ai, disabled=promt_ai.pending, style=chatinput_style).key("input")
+            ChatOptions()
 
 
 @solara.component
@@ -294,3 +296,15 @@ def H3(children=[], on_click=None, style: dict[str, str] | str = {}):
         return cleanup
 
     solara.use_effect(add_click_handler, [])
+
+
+@solara.component
+def ChatOptions():
+    model_in_use = current_model.value if selected_chat.value is None else selected_chat.value["model"]
+
+    with solara.Row():
+        with solara.Tooltip(
+            "Using tools (function calling), will disable streaming responses, since Ollama does not support this yet."
+            if SUPPORTS_TOOLS[model_in_use] else "Current model does not support tools (function calling)"
+        ):
+            solara.Switch(value=use_tools, label="Use Tools", style={"margin": "0"}, disabled=SUPPORTS_TOOLS[model_in_use] is False)
