@@ -9,3 +9,7 @@
 ## Using different models
 
 If you want to use a different model, or have a number of models available, you can simply pull them using `ollama pull model`, and after a refresh the app should list the available models on the bottom of the sidebar.
+
+## Tool calling
+
+There are two model tools currently available to use - looking up articles on wikipedia and searching duckduckgo. Custom tools can be added by using `deepseek_ollama_solara.tools.add_tool`
