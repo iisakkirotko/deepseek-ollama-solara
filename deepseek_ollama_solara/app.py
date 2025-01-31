@@ -1,21 +1,25 @@
-from collections.abc import AsyncIterator
-import json
-from typing import List, cast
-
-from typing import Callable
-
-from ollama import AsyncClient, ChatResponse
-from ollama._types import ResponseError
 import datetime
+import json
 import uuid
+from collections.abc import AsyncIterator
+from typing import Callable, List, cast
 
 import solara
 import solara.lab
+from ollama import AsyncClient, ChatResponse
+from ollama._types import ResponseError
 from reacton.ipyvuetify import use_event
 
-from .database import create_messages, connect_database, get_chats, get_messages, create_chat, update_chat
-from .tools import tools, tool_callables
-from .types import Message, ChatDict
+from .database import (
+    connect_database,
+    create_chat,
+    create_messages,
+    get_chats,
+    get_messages,
+    update_chat,
+)
+from .tools import tool_callables, tools
+from .types import ChatDict, Message
 
 SUPPORTS_TOOLS: dict[str, bool] = {}
 
@@ -37,6 +41,7 @@ async def init():
         if model.model not in SUPPORTS_TOOLS:
             SUPPORTS_TOOLS[model.model] = True
 
+
 async def process_response(response: AsyncIterator[ChatResponse]) -> list[Message]:
     thinking = False
     tool_messages: list[Message] = []
@@ -45,8 +50,13 @@ async def process_response(response: AsyncIterator[ChatResponse]) -> list[Messag
         if chunk.message.tool_calls is not None:
             for tool_call in chunk.message.tool_calls:
                 tool_callable = tool_callables[tool_call.function.name]
-                tool_result = await tool_callable(**tool_call.function.arguments) # type: ignore
-                tool_message = Message(role="tool", created=datetime.datetime.now(), content=json.dumps(tool_result), chain_of_reason=None)
+                tool_result = await tool_callable(**tool_call.function.arguments)  # type: ignore
+                tool_message = Message(
+                    role="tool",
+                    created=datetime.datetime.now(),
+                    content=json.dumps(tool_result),
+                    chain_of_reason=None,
+                )
                 tool_messages.append(tool_message)
                 messages.value = [*messages.value, tool_message]
             break
@@ -60,10 +70,14 @@ async def process_response(response: AsyncIterator[ChatResponse]) -> list[Messag
             thinking = False
             continue
         assert delta is not None
-        created = assistant_message.created if assistant_message is not None else datetime.datetime.now()
+        created = (
+            assistant_message.created if assistant_message is not None else datetime.datetime.now()
+        )
         message_content = assistant_message.content if assistant_message is not None else None
-        chain_of_reason = assistant_message.chain_of_reason if assistant_message is not None else None
-        
+        chain_of_reason = (
+            assistant_message.chain_of_reason if assistant_message is not None else None
+        )
+
         if thinking:
             if chain_of_reason is None:
                 chain_of_reason = ""
@@ -72,7 +86,7 @@ async def process_response(response: AsyncIterator[ChatResponse]) -> list[Messag
             if message_content is None:
                 message_content = ""
             message_content += delta
-        
+
         updated_message = Message(
             role="assistant",
             created=created,
@@ -91,7 +105,7 @@ async def process_response(response: AsyncIterator[ChatResponse]) -> list[Messag
 
         if chunk.done_reason == "stop":
             break
-    
+
     messages_to_create = tool_messages
     if assistant_message is not None:
         messages_to_create.append(assistant_message)
@@ -107,7 +121,7 @@ async def chat_loop(ai_client: AsyncClient, model_to_use: str):
         stream=True,
         tools=tools if (SUPPORTS_TOOLS[model_to_use] and use_tools.value) else None,
     )
-    
+
     try:
         messages_to_create = await process_response(response)
     except ResponseError as e:
@@ -127,6 +141,7 @@ async def chat_loop(ai_client: AsyncClient, model_to_use: str):
 
     return messages_to_create
 
+
 @solara.lab.task
 async def update_messages():
     messages.value = await get_messages(selected_chat.value["id"])
@@ -135,11 +150,17 @@ async def update_messages():
 @solara.lab.task(prefer_threaded=False)
 async def promt_ai(message: str):
     ai_client = AsyncClient()
-    model_to_use = current_model.value if selected_chat.value is None else selected_chat.value["model"]
-    user_message = Message(role="user", created=datetime.datetime.now(), content=message, chain_of_reason=None)
+    model_to_use = (
+        current_model.value if selected_chat.value is None else selected_chat.value["model"]
+    )
+    user_message = Message(
+        role="user", created=datetime.datetime.now(), content=message, chain_of_reason=None
+    )
     if selected_chat.value is None:
         new_chat = await create_chat("New Chat", uuid.uuid4(), current_model.value)
-        selected_chat.value = cast(ChatDict, {"id": new_chat["id"], "title": new_chat["title"], "model": new_chat["model"]})
+        selected_chat.value = cast(
+            ChatDict, {"id": new_chat["id"], "title": new_chat["title"], "model": new_chat["model"]}
+        )
 
     messages.value = [*messages.value, user_message]
 
@@ -154,7 +175,9 @@ def Page():
     init_task = solara.lab.use_task(init, dependencies=[selected_chat.value])
     empty_chat = selected_chat.value is None or len(messages.value) == 0
     if init_task.pending:
-        with solara.Column(style={"width": "100%", "height": "100%", "justify-content": "center"}, align="center"):
+        with solara.Column(
+            style={"width": "100%", "height": "100%", "justify-content": "center"}, align="center"
+        ):
             solara.SpinnerSolara()
             solara.Text("Loading...")
     else:
@@ -171,7 +194,7 @@ def Page():
                         model_name = current_model.value.split(":")[0]
                     else:
                         model_name = selected_chat.value["model"].split(":")[0]
-                    
+
                     for item in messages.value:
                         if item["role"] == "tool":
                             tool_result = json.loads(item["content"])
@@ -182,8 +205,12 @@ def Page():
                                 user=item["role"] == "user",
                                 avatar=False,
                                 name=model_name if item["role"] == "assistant" else "User",
-                                color="rgba(0,0,0, 0.06)" if item["role"] == "assistant" else "#ff991f",
-                                avatar_background_color="primary" if item["role"] == "assistant" else None,
+                                color="rgba(0,0,0, 0.06)"
+                                if item["role"] == "assistant"
+                                else "#ff991f",
+                                avatar_background_color="primary"
+                                if item["role"] == "assistant"
+                                else None,
                                 border_radius="20px",
                             ):
                                 if item["chain_of_reason"] is not None:
@@ -195,8 +222,13 @@ def Page():
                 solara.ProgressLinear()
             # if we don't call .key(..) with a unique key, the ChatInput component will be re-created
             # and we'll lose what we typed.
-            chatinput_style = {"width": "50%" if empty_chat else "auto", "align-self": "center" if empty_chat else "stretch"}
-            solara.lab.ChatInput(send_callback=promt_ai, disabled=promt_ai.pending, style=chatinput_style).key("input")
+            chatinput_style = {
+                "width": "50%" if empty_chat else "auto",
+                "align-self": "center" if empty_chat else "stretch",
+            }
+            solara.lab.ChatInput(
+                send_callback=promt_ai, disabled=promt_ai.pending, style=chatinput_style
+            ).key("input")
             ChatOptions()
 
 
@@ -209,11 +241,21 @@ def Layout(children=[]):
         else:
             selected_chat.set(next(chat for chat in chats.value if chat["id"] == uuid.UUID(value)))
             update_messages()
-    
+
     with solara.Row(style={"width": "100%", "height": "100dvh"}, gap=0):
         with solara.v.NavigationDrawer(v_model=True):
-            solara.Button(label="New Chat", on_click=lambda: update_selected_chat(None), style={"width": "100%", "justify-content": "flex-start"}, text=True, icon_name="add")
-            with solara.v.ListItemGroup(v_model=str(selected_chat.value["id"] if selected_chat.value is not None else None), on_v_model=update_selected_chat, style_="max-height: calc(100% - 115px); overflow-y: auto;"):
+            solara.Button(
+                label="New Chat",
+                on_click=lambda: update_selected_chat(None),
+                style={"width": "100%", "justify-content": "flex-start"},
+                text=True,
+                icon_name="add",
+            )
+            with solara.v.ListItemGroup(
+                v_model=str(selected_chat.value["id"] if selected_chat.value is not None else None),
+                on_v_model=update_selected_chat,
+                style_="max-height: calc(100% - 115px); overflow-y: auto;",
+            ):
                 for chat in chats.value:
                     with solara.v.ListItem(value=str(chat["id"]), dense=True):
                         solara.v.ListItemTitle(children=[chat["title"]])
@@ -229,7 +271,11 @@ def Layout(children=[]):
                         "padding": "0 16px",
                     },
                 )
-        with solara.Column(children=children, gap=0, style={"height": "calc(100dvh - 44px)", "flex": 1, "padding": "20px"}):
+        with solara.Column(
+            children=children,
+            gap=0,
+            style={"height": "calc(100dvh - 44px)", "flex": 1, "padding": "20px"},
+        ):
             pass
 
 
@@ -242,26 +288,42 @@ def ChatTitle():
 
     def start_editing(*_ignore):
         editing.set(True)
-    
+
     def cancel_editing(*_ignore):
         editing.set(False)
 
     async def _save_title(*_ignore):
         cancel_editing()
         await update_chat(selected_chat.value["id"], title.value)
-        new_details: ChatDict = {"id": selected_chat.value["id"], "title": title.value, "model": selected_chat.value["model"]}
+        new_details: ChatDict = {
+            "id": selected_chat.value["id"],
+            "title": title.value,
+            "model": selected_chat.value["model"],
+        }
         selected_chat.value = new_details
 
     save_title = solara.lab.use_task(_save_title, dependencies=None)
-    
-    with solara.Div(style={"display": "flex", "justify-content": "flex-start", "flex-shrink": "0", "max-width": "600px", "overflow": "hidden"}):
+
+    with solara.Div(
+        style={
+            "display": "flex",
+            "justify-content": "flex-start",
+            "flex-shrink": "0",
+            "max-width": "600px",
+            "overflow": "hidden",
+        }
+    ):
         if editing.value:
             solara.InputText(label="Chat Title", value=title)
             IconButton("check", on_click=lambda: save_title())
             IconButton("cancel", on_click=cancel_editing)
-            
+
         else:
-            H3(children=[title.value], on_click=start_editing, style={"cursor": "pointer", "flex": 1})
+            H3(
+                children=[title.value],
+                on_click=start_editing,
+                style={"cursor": "pointer", "flex": 1},
+            )
 
 
 @solara.component
@@ -269,10 +331,10 @@ def IconButton(icon: str, on_click: Callable[[], None] | None = None):
     def _on_click(*_):
         if on_click is not None:
             on_click()
-    
+
     with solara.v.Btn(icon=True) as button:
         solara.v.Icon(children=[icon])
-    
+
     use_event(button, "click", _on_click)
 
 
@@ -286,7 +348,7 @@ def H3(children=[], on_click=None, style: dict[str, str] | str = {}):
         def _on_click(*_):
             if on_click is not None:
                 on_click()
-        
+
         widget = solara.get_widget(title_el)
         widget.on_event("click", _on_click)
 
@@ -300,11 +362,19 @@ def H3(children=[], on_click=None, style: dict[str, str] | str = {}):
 
 @solara.component
 def ChatOptions():
-    model_in_use = current_model.value if selected_chat.value is None else selected_chat.value["model"]
+    model_in_use = (
+        current_model.value if selected_chat.value is None else selected_chat.value["model"]
+    )
 
     with solara.Row():
         with solara.Tooltip(
             "Using tools (function calling), will disable streaming responses, since Ollama does not support this yet."
-            if SUPPORTS_TOOLS[model_in_use] else "Current model does not support tools (function calling)"
+            if SUPPORTS_TOOLS[model_in_use]
+            else "Current model does not support tools (function calling)"
         ):
-            solara.Switch(value=use_tools, label="Use Tools", style={"margin": "0"}, disabled=SUPPORTS_TOOLS[model_in_use] is False)
+            solara.Switch(
+                value=use_tools,
+                label="Use Tools",
+                style={"margin": "0"},
+                disabled=SUPPORTS_TOOLS[model_in_use] is False,
+            )

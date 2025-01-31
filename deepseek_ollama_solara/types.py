@@ -1,9 +1,9 @@
 import datetime
-from typing import Any
 import uuid
-from typing_extensions import TypedDict
+from typing import Any
 
 from ollama import Message as OllamaMessage
+from typing_extensions import TypedDict
 
 
 class Message(OllamaMessage):

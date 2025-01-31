@@ -1,6 +1,7 @@
-from typing import Any, Coroutine, Callable
+from typing import Any, Callable, Coroutine
+
 from ..types import ToolResult
-from .web import search_duckduckgo, lookup_wikipedia
+from .web import lookup_wikipedia, search_duckduckgo
 
 tools = [
     {
@@ -50,6 +51,8 @@ tool_callables: dict[str, Callable[[Any], Coroutine[Any, Any, ToolResult]]] = {
 }
 
 
-def add_tool(function: Callable[[Any], Coroutine[Any, Any, ToolResult]], description: dict[str, Any]):
+def add_tool(
+    function: Callable[[Any], Coroutine[Any, Any, ToolResult]], description: dict[str, Any]
+):
     tools.append(description)
     tool_callables[description["function"]["name"]] = function
