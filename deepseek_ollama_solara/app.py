@@ -211,7 +211,7 @@ def Layout(children=[]):
     with solara.Row(style={"width": "100%", "height": "100dvh"}, gap=0):
         with solara.v.NavigationDrawer(v_model=True):
             solara.Button(label="New Chat", on_click=lambda: update_selected_chat(None), style={"width": "100%", "justify-content": "flex-start"}, text=True, icon_name="add")
-            with solara.v.ListItemGroup(v_model=str(selected_chat.value["id"] if selected_chat.value is not None else None), on_v_model=update_selected_chat):
+            with solara.v.ListItemGroup(v_model=str(selected_chat.value["id"] if selected_chat.value is not None else None), on_v_model=update_selected_chat, style_="max-height: calc(100% - 115px); overflow-y: auto;"):
                 for chat in chats.value:
                     with solara.v.ListItem(value=str(chat["id"]), dense=True):
                         solara.v.ListItemTitle(children=[chat["title"]])
