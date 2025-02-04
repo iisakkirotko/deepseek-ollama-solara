@@ -181,18 +181,23 @@ def Page():
             solara.Text("Loading...")
     else:
         with solara.Column(
-            style={"width": "100%", "height": "50vh" if empty_chat else "100%"},
+            style={
+                "width": "100%",
+                "height": "100%",
+                "justify-content": "center" if empty_chat else "flex-start",
+            },
         ):
             if selected_chat.value is not None:
                 ChatTitle(selected_chat=selected_chat)
-            with solara.lab.ChatBox():
-                if update_messages.pending:
-                    solara.Text("Loading messages...")
-                else:
-                    if empty_chat:
-                        model_name = current_model.value.split(":")[0]
+            if not empty_chat:
+                with solara.lab.ChatBox():
+                    if update_messages.pending:
+                        solara.Text("Loading messages...")
                     else:
-                        model_name = selected_chat.value["model"].split(":")[0]
+                        if empty_chat:
+                            model_name = current_model.value.split(":")[0]
+                        else:
+                            model_name = selected_chat.value["model"].split(":")[0]
 
                         for message in messages.value:
                             ChatMessage(message, model_name)
